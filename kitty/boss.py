@@ -140,7 +140,7 @@ from .keys import Mappings
 from .layout.base import set_layout_options
 from .notifications import NotificationManager
 from .options.types import Options, nullable_colors
-from .options.utils import MINIMUM_FONT_SIZE, KeyboardMode, KeyDefinition
+from .options.utils import KeyboardMode, KeyDefinition, clamp_font_size
 from .os_window_size import initial_window_size_func
 from .session import (
     Session,
@@ -1662,12 +1662,10 @@ class Boss:
             self.show_error(_('Unknown clear type'), _('The clear type: {} is unknown').format(action))
 
     def increase_font_size(self) -> None:  # legacy
-        cfs = global_font_size()
-        self.set_font_size(min(get_options().font_size * 5, cfs + 2.0))
+        self.set_font_size(global_font_size() + 2.0)
 
     def decrease_font_size(self) -> None:  # legacy
-        cfs = global_font_size()
-        self.set_font_size(max(MINIMUM_FONT_SIZE, cfs - 2.0))
+        self.set_font_size(global_font_size() - 2.0)
 
     def restore_font_size(self) -> None:  # legacy
         self.set_font_size(get_options().font_size)
@@ -1703,7 +1701,7 @@ class Boss:
                             pass  # no-op
                 else:
                     new_size = amt
-                new_size = max(MINIMUM_FONT_SIZE, min(new_size, get_options().font_size * 10))
+                new_size = clamp_font_size(new_size, get_options().font_size)
             return new_size
 
         if all_windows:
