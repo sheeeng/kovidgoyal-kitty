@@ -472,7 +472,7 @@ class Boss:
         with Window.set_ignore_focus_changes_for_new_windows():
             for startup_session in si:
                 # The window state from the CLI options will override and apply to every single OS window in startup session
-                wstate = self.args.start_as if self.args.start_as and self.args.start_as != 'normal' else None
+                wstate = self.args.start_as if self.args.start_as and self.args.start_as != 'normal' else None  # ty: ignore[redundant-condition]
                 wid = self.add_os_window(startup_session, window_state=wstate, os_window_id=os_window_id)
                 if startup_session.focus_os_window:
                     focused_os_window = wid
@@ -1065,7 +1065,7 @@ class Boss:
                                 assert isinstance(window.launch_spec, LaunchSpec)
                                 launch(get_boss(), window.launch_spec.opts, window.launch_spec.args)
                     continue
-                wstate = args.start_as if args.start_as and args.start_as != 'normal' else None
+                wstate = args.start_as if args.start_as and args.start_as != 'normal' else None  # ty: ignore[redundant-condition]
                 os_window_id = self.add_os_window(
                     session,
                     wclass=args.cls,
