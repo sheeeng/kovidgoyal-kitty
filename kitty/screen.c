@@ -4327,11 +4327,11 @@ screen_has_selection(Screen *self) {
 
 bool
 screen_is_cell_selected(Screen *self, index_type x, index_type y) {
-    if (x >= self->columns || y >= self->lines) return false;
+    if (x >= self->columns || y >= self->lines || !self->selections.count) return false;
     const int row = (int)y - self->scrolled_by;
-    Line *line = checked_range_line(self, row);
-    if (!line) return false;
-    const CPUCell cell = line->cpu_cells[x];
+    const Line *queried_line = checked_range_line(self, row);
+    if (!queried_line) return false;
+    const CPUCell cell = queried_line->cpu_cells[x];
     // Every cell of a multi-cell character has the same selection highlight.
     const int first_row = cell.is_multicell ? row - cell.y : row;
     const int last_row = cell.is_multicell ? first_row + cell.scale : row + 1;
@@ -4342,7 +4342,7 @@ screen_is_cell_selected(Screen *self, index_type x, index_type y) {
         iteration_data(self->selections.items + i, &idata, self->columns, -self->historybuf->count, 0);
         const int start = MAX(visible_start, MAX(first_row, idata.y)), end = MIN(visible_end, MIN(last_row, idata.y_limit));
         for (int r = start; r < end; r++) {
-            line = checked_range_line(self, r);
+            const Line *line = checked_range_line(self, r);
             if (line) {
                 const XRange xr = xrange_for_iteration_with_multicells(&idata, r, line);
                 if (x >= xr.x && x < xr.x_limit) return true;

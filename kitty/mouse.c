@@ -657,19 +657,27 @@ distance(double x1, double y1, double x2, double y2) {
 }
 
 static void
+clear_click_queue(Window *w, int button) {
+    if (0 <= button && button < (ssize_t)arraysz(w->click_queues)) w->click_queues[button].length = 0;
+}
+
+// NB: This can call into Python, which can re-alloc the windows array, so w
+// must not be used after it returns. Keep it last in its callers.
+static void
 handle_potential_drag(Window *w, int button) {
     if (button != GLFW_MOUSE_BUTTON_LEFT || !w->drag_source.initial_left_press.at || OPT(drag_threshold) <= 0) return;
     if (distance(w->mouse_pos.global_x, w->mouse_pos.global_y, w->drag_source.initial_left_press.x, w->drag_source.initial_left_press.y) <= OPT(drag_threshold))
         return;
     zero_at_ptr(&w->drag_source.initial_left_press);
     Screen *screen = w->render_data.screen;
+    // A native drag consumes the release event, including when canceled. Stop
+    // tracking the local gesture before handing it to the window system,
+    // otherwise the press lingers and the next one counts as a double click.
+    clear_click_queue(w, button);
     if (w->drag_source.potential_drag.type == POTENTIAL_DRAG_SELECTION) {
         zero_at_ptr(&w->drag_source.potential_drag);
-        // A native drag consumes the release event, including when canceled. Stop
-        // tracking the local gesture before handing it to the window system.
         global_state.active_drag_in_window = 0;
         global_state.active_drag_button = -1;
-        w->click_queues[GLFW_MOUSE_BUTTON_LEFT].length = 0;
         set_mouse_cursor_for_screen(screen);
         if (screen->callbacks != Py_None) {
             PyObject *ret = PyObject_CallMethod(screen->callbacks, "drag_selection", NULL);
@@ -714,11 +722,6 @@ HANDLER(handle_move_event) {
         }
     }
     handle_potential_drag(w, button);
-}
-
-static void
-clear_click_queue(Window *w, int button) {
-    if (0 <= button && button <= (ssize_t)arraysz(w->click_queues)) w->click_queues[button].length = 0;
 }
 
 #define N(n) (q->clicks[q->length - n])
@@ -877,17 +880,21 @@ dispatch_possible_click(Window *w, int button, int modifiers) {
     }
 }
 
+// Must be called for every button event before any early return, otherwise a
+// pending drag lingers and fires on a later mouse move with no button held.
 static void
-prepare_mouse_button(Window *w, int button, bool is_release) {
+clear_potential_drag(Window *w, int button, bool is_release) {
     zero_at_ptr(&w->drag_source.potential_drag);
-    if (button == GLFW_MOUSE_BUTTON_LEFT) {
-        if (is_release) zero_at_ptr(&w->drag_source.initial_left_press);
-        else {
-            w->drag_source.initial_left_press.x = w->mouse_pos.global_x;
-            w->drag_source.initial_left_press.y = w->mouse_pos.global_y;
-            w->drag_source.initial_left_press.at = monotonic();
-        }
-    }
+    if (is_release && button == GLFW_MOUSE_BUTTON_LEFT) zero_at_ptr(&w->drag_source.initial_left_press);
+}
+
+// Needs an up-to-date w->mouse_pos, as the drag threshold is measured from it.
+static void
+arm_potential_drag(Window *w, int button) {
+    if (button != GLFW_MOUSE_BUTTON_LEFT) return;
+    w->drag_source.initial_left_press.x = w->mouse_pos.global_x;
+    w->drag_source.initial_left_press.y = w->mouse_pos.global_y;
+    w->drag_source.initial_left_press.at = monotonic();
 }
 
 HANDLER(handle_button_event) {
@@ -897,6 +904,7 @@ HANDLER(handle_button_event) {
 
     Tab *t = osw->tabs + osw->active_tab;
     bool is_release = !osw->mouse_button_pressed[button];
+    clear_potential_drag(w, button, is_release);
 
     if (handle_scrollbar_mouse(w, button, is_release ? RELEASE : PRESS, modifiers)) return;
 
@@ -907,7 +915,7 @@ HANDLER(handle_button_event) {
 
     bool a, b;
     if (!set_mouse_position(w, &a, &b)) return;
-    prepare_mouse_button(w, button, is_release);
+    if (!is_release) arm_potential_drag(w, button);
     if (button == GLFW_MOUSE_BUTTON_LEFT && !is_release) osw->shader_anim_event_registry |= (1u << SHADER_ANIM_EVENT_POINTER_LEFT_BUTTON_PRESS);
     id_type wid = w->id;
     if (!dispatch_mouse_event(w, button, is_release ? -1 : 1, modifiers, screen->modes.mouse_tracking_mode != 0)) {
@@ -1729,10 +1737,10 @@ send_mock_mouse_event_to_window(PyObject *self UNUSED, PyObject *args) {
     PyObject *capsule;
     int button, modifiers, is_release, clear_clicks, in_left_half_of_cell;
     unsigned int x, y;
-    double pixel_x = -1, pixel_y = -1;
+    PyObject *pixel_x = Py_None, *pixel_y = Py_None;
     if (!PyArg_ParseTuple(
             args,
-            "O!iipIIpp|dd",
+            "O!iipIIpp|OO",
             &PyCapsule_Type,
             &capsule,
             &button,
@@ -1749,8 +1757,13 @@ send_mock_mouse_event_to_window(PyObject *self UNUSED, PyObject *args) {
     if (!w) return NULL;
     if (clear_clicks) clear_click_queue(w, button);
     bool mouse_cell_changed = x != w->mouse_pos.cell_x || y != w->mouse_pos.cell_y || w->mouse_pos.in_left_half_of_cell != in_left_half_of_cell;
-    w->mouse_pos.global_x = pixel_x < 0 ? 10 * x : pixel_x;
-    w->mouse_pos.global_y = pixel_y < 0 ? 20 * y : pixel_y;
+    // None means derive the pixel position from the cell, so that tests that do
+    // not care about sub-cell positions stay terse. Negative values are legal.
+    const double px = pixel_x == Py_None ? 10 * x : PyFloat_AsDouble(pixel_x);
+    const double py = pixel_y == Py_None ? 20 * y : PyFloat_AsDouble(pixel_y);
+    if (PyErr_Occurred()) return NULL;
+    w->mouse_pos.global_x = px;
+    w->mouse_pos.global_y = py;
     w->mouse_pos.cell_x = x;
     w->mouse_pos.cell_y = y;
     w->mouse_pos.in_left_half_of_cell = in_left_half_of_cell;
@@ -1767,7 +1780,8 @@ send_mock_mouse_event_to_window(PyObject *self UNUSED, PyObject *args) {
         if (global_state.active_drag_in_window && is_release && button == global_state.active_drag_button) {
             end_drag(w);
         } else {
-            prepare_mouse_button(w, button, is_release);
+            clear_potential_drag(w, button, is_release);
+            if (!is_release) arm_potential_drag(w, button);
             dispatch_mouse_event(w, button, is_release ? -1 : 1, modifiers, w->render_data.screen->modes.mouse_tracking_mode != NO_TRACKING);
             if (!is_release) {
                 last_button_pressed = button;

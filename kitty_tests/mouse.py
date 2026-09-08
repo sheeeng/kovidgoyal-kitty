@@ -25,8 +25,8 @@ def send_mouse_event(
     x=0.0,
     y=0,
     clear_click_queue=False,
-    pixel_x=-1,
-    pixel_y=-1,
+    pixel_x=None,
+    pixel_y=None,
 ):
     ix = int(x)
     in_left_half_of_cell = x - ix < 0.5

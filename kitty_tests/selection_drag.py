@@ -11,6 +11,7 @@ from kitty.fast_data_types import (
     GLFW_MOD_SHIFT,
     GLFW_MOUSE_BUTTON_LEFT,
     GLFW_MOUSE_BUTTON_RIGHT,
+    MOUSE_SELECTION_DRAG_OR_NORMAL_SELECT,
     create_mock_window,
     mock_mouse_selection,
     set_options,
@@ -146,6 +147,32 @@ class TestSelectionDrag(BaseTest):
         self.ae(urls, ['https://example.com'])
         self.ae(drags, ['example'])
 
+    def test_selection_drag_click_count(self):
+        s, ev, drags = self.drag_screen()
+        s.draw('https://example.com')
+        urls = []
+        s.callbacks.drag_url = lambda url, hyperlink_id: urls.append(url)
+        codes = []
+        dispatch = s.callbacks.mouse_selection
+
+        def record(code):
+            codes.append(code)
+            dispatch(code)
+
+        s.callbacks.mouse_selection = record
+        # A native drag consumes mouse-up, so the press must not linger in the
+        # click queue, otherwise the next press counts as a double press and
+        # selects a word instead of starting a new gesture. This applies to
+        # link drags just as much as to text drags.
+        for i in range(1, 3):
+            with self.subTest(gesture=i):
+                ev(x=10)
+                ev(LEFT, x=10, pixel_x=100)
+                ev(x=10, pixel_x=106)  # exceed the threshold without leaving the cell
+                self.ae(codes, [MOUSE_SELECTION_DRAG_OR_NORMAL_SELECT] * i)
+                self.ae(urls, ['https://example.com'] * i)
+                self.ae(drags, [])
+
     def test_selection_drag_hit_testing(self):
         for kind in ('forward', 'backward', 'rectangle', 'unicode', 'multicell', 'scrollback', 'alternate'):
             with self.subTest(kind=kind):
@@ -188,6 +215,7 @@ class TestSelectionDrag(BaseTest):
             geometry=SimpleNamespace(left=0, right=400),
             os_window_id=1,
         )
+        w.drag_thumbnails = partial(Window.drag_thumbnails, w)
         with (
             patch('kitty.window.draw_single_line_of_text', return_value=(b'\0' * 4, 1)) as draw,
             patch('kitty.window.start_drag_with_data') as start,
