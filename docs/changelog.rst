@@ -200,6 +200,11 @@ Detailed list of changes
 0.49.0 [future]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+- Allow dragging selected text to other windows or applications with the
+  :code:`mouse_selection drag_or_normal_select` mouse action, in addition to
+  its existing support for dragging links. See the
+  :sc:`configuration examples <start_simple_selection>` to enable it.
+
 - Support for :doc:`/custom-shaders` for adding various graphical effects (:iss:`10344`)
 
 - Various throughput performance improvements for a 15-35% real world improvement depending on workload
