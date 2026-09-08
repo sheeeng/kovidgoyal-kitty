@@ -202,13 +202,6 @@ Detailed list of changes
 
 - Support for :doc:`/custom-shaders` for adding various graphical effects (:iss:`10344`)
 
-- Allow zooming the font further in. The maximum size was ten times the
-  configured :opt:`font_size`, so a small configured font also meant a small
-  maximum zoom. It is now the larger of that multiple and an absolute 256pt
-
-- Fix :ac:`increase_font_size` stopping at five times the configured
-  :opt:`font_size` rather than the ten used by :ac:`change_font_size`
-
 - Various throughput performance improvements for a 15-35% real world improvement depending on workload
 
 - Add :opt:`window_border_radius` for rounded window borders (:pull:`10421`)
